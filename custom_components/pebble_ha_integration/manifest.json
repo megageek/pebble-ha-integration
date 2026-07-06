@@ -1,0 +1,13 @@
+{
+  "domain": "pebble_ha_integration",
+  "name": "Pebble Watch",
+  "codeowners": [
+    "@megageek"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/megageek/pebble-ha-integration",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/megageek/pebble-ha-integration/issues",
+  "version": "0.1.0"
+}
