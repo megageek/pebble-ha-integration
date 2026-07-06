@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from custom_components.pebble_ha_integration.const import ATTRIBUTION
-from custom_components.pebble_ha_integration.coordinator import PebbleWatchDataUpdateCoordinator
+from custom_components.pebble_ha_integration.coordinator import PebbleWatchStatusCoordinator
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity import EntityDescription
 
 
-class PebbleWatchEntity(CoordinatorEntity[PebbleWatchDataUpdateCoordinator]):
+class PebbleWatchEntity(CoordinatorEntity[PebbleWatchStatusCoordinator]):
     """
     Base entity class for pebble_ha_integration.
 
@@ -30,26 +29,24 @@ class PebbleWatchEntity(CoordinatorEntity[PebbleWatchDataUpdateCoordinator]):
     - Automatic coordinator updates
     - Device info management
     - Unique ID generation
-    - Attribution and naming conventions
+    - Entity naming conventions
 
     For more information:
     https://developers.home-assistant.io/docs/core/entity
-    https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
     """
 
-    _attr_attribution = ATTRIBUTION
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: PebbleWatchDataUpdateCoordinator,
+        coordinator: PebbleWatchStatusCoordinator,
         entity_description: EntityDescription,
     ) -> None:
         """
         Initialize the base entity.
 
         Args:
-            coordinator: The data update coordinator for this entity.
+            coordinator: The status coordinator for this entity.
             entity_description: The entity description defining characteristics.
 
         """
@@ -57,6 +54,10 @@ class PebbleWatchEntity(CoordinatorEntity[PebbleWatchDataUpdateCoordinator]):
         self.entity_description = entity_description
         # Include entity description key in unique_id to support multiple entities
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{entity_description.key}"
+        # model/sw_version are deliberately omitted here - they arrive asynchronously
+        # from the watch's one-time device-info report and are applied directly to
+        # the device registry (see api/websocket_commands.py) rather than through a
+        # static DeviceInfo set once at entity-add time.
         self._attr_device_info = DeviceInfo(
             identifiers={
                 (
@@ -65,6 +66,5 @@ class PebbleWatchEntity(CoordinatorEntity[PebbleWatchDataUpdateCoordinator]):
                 ),
             },
             name=coordinator.config_entry.title,
-            manufacturer=coordinator.config_entry.domain,
-            model=coordinator.data.get("model", "Unknown"),
+            manufacturer="Pebble",
         )

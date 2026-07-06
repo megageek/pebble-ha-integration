@@ -6,8 +6,9 @@
   ],
   "config_flow": true,
   "documentation": "https://github.com/megageek/pebble-ha-integration",
-  "integration_type": "hub",
-  "iot_class": "cloud_polling",
+  "integration_type": "device",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/megageek/pebble-ha-integration/issues",
+  "single_config_entry": true,
   "version": "0.1.0"
 }

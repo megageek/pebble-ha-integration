@@ -1,95 +1,74 @@
 """
-Data processing utilities for the coordinator.
+Entity registry sync for the watch's `disabled` measure-group reporting.
 
-This module provides functions for processing, transforming, and validating
-data received from the API before distributing it to entities.
+HA_INTEGRATION_SPEC.md distinguishes two reasons a status field might be missing
+from a report:
 
-Use cases:
-- Data normalization and validation
-- Caching strategies for expensive computations
-- Data transformation for entity consumption
-- Aggregation of multiple API responses
+- The user explicitly turned that measure group off in the watchface's Clay config
+  (named in the `disabled` field) - the corresponding entity should be
+  registry-disabled, since it represents deliberate user intent.
+- The field is merely inaccessible right now (no HR sensor, no Health permission,
+  or it's simply never been reported yet) - an entity for it is only ever created
+  once real data arrives (see the sensor/binary_sensor platforms), so there's
+  nothing to disable in that case.
+
+This module handles only the first case, diffing `disabled` between reports.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from custom_components.pebble_ha_integration.const import LOGGER
+from custom_components.pebble_ha_integration.const import DOMAIN, MEASURE_GROUP_KEYS, STATUS_FIELD_DISABLED
+from homeassistant.helpers import entity_registry as er
+
+if TYPE_CHECKING:
+    from custom_components.pebble_ha_integration.data import PebbleWatchConfigEntry
+    from homeassistant.core import HomeAssistant
 
 
-def validate_api_response(data: Any) -> bool:
+def _disabled_groups(status: dict[str, Any]) -> set[str]:
+    """Parse the comma-separated `disabled` field into a set of group names."""
+    raw = status.get(STATUS_FIELD_DISABLED, "")
+    return {group for group in raw.split(",") if group}
+
+
+def async_sync_disabled_entities(
+    hass: HomeAssistant,
+    entry: PebbleWatchConfigEntry,
+    old_status: dict[str, Any],
+    new_status: dict[str, Any],
+) -> None:
     """
-    Validate the structure and content of API response data.
+    Disable/re-enable entities whose measure group just entered/left `disabled`.
 
     Args:
-        data: The raw data received from the API.
+        hass: The Home Assistant instance.
+        entry: The config entry that owns the affected entities.
+        old_status: The previously merged status data (before this report).
+        new_status: The newly merged status data (including this report).
 
-    Returns:
-        True if the data is valid, False otherwise.
-
-    Example:
-        >>> data = {"userId": 1, "id": 1, "title": "Test"}
-        >>> validate_api_response(data)
-        True
     """
-    if not isinstance(data, dict):
-        LOGGER.warning("Invalid API response: expected dict, got %s", type(data).__name__)
-        return False
+    old_disabled = _disabled_groups(old_status)
+    new_disabled = _disabled_groups(new_status)
+    if old_disabled == new_disabled:
+        return
 
-    # Add validation logic based on your API structure
-    # This is a placeholder for future implementation
-    return True
+    registry = er.async_get(hass)
+    for group, keys in MEASURE_GROUP_KEYS.items():
+        newly_disabled = group in new_disabled and group not in old_disabled
+        newly_enabled = group in old_disabled and group not in new_disabled
+        if not (newly_disabled or newly_enabled):
+            continue
 
-
-def transform_api_data(raw_data: Any) -> dict[str, Any]:
-    """
-    Transform raw API data into a standardized format for entities.
-
-    This function can be used to:
-    - Normalize field names
-    - Convert units
-    - Calculate derived values
-    - Restructure nested data
-
-    Args:
-        raw_data: The raw data from the API.
-
-    Returns:
-        A dictionary with transformed data ready for entity consumption.
-
-    Example:
-        >>> raw = {"temp_c": 25.5}
-        >>> transform_api_data(raw)
-        {"temperature": 25.5, "temperature_f": 77.9}
-    """
-    if not validate_api_response(raw_data):
-        LOGGER.warning("Skipping transformation of invalid data")
-        return raw_data if isinstance(raw_data, dict) else {}
-
-    # Transform data as needed
-    # This is a placeholder for future implementation
-    return raw_data
-
-
-def cache_computed_values(data: dict[str, Any]) -> dict[str, Any]:
-    """
-    Add computed or cached values to the coordinator data.
-
-    This is useful for expensive calculations that should only be done once
-    per update cycle rather than in each entity.
-
-    Args:
-        data: The base data dictionary.
-
-    Returns:
-        The data dictionary with additional computed values.
-
-    Example:
-        >>> data = {"power": 1000, "runtime": 3600}
-        >>> cache_computed_values(data)
-        {"power": 1000, "runtime": 3600, "energy_kwh": 1.0}
-    """
-    # Add computed values as needed
-    # This is a placeholder for future implementation
-    return data
+        for key in keys:
+            unique_id = f"{entry.entry_id}_{key}"
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id) or registry.async_get_entity_id(
+                "binary_sensor", DOMAIN, unique_id
+            )
+            if entity_id is None:
+                continue
+            registry.async_update_entity(
+                entity_id,
+                disabled_by=er.RegistryEntryDisabler.INTEGRATION if newly_disabled else None,
+            )

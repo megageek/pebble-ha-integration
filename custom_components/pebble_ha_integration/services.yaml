@@ -1,30 +1,168 @@
 # yaml-language-server: $schema=../../schemas/yaml/services_schema.yaml
 # Describes the format for available services for pebble_ha_integration
 
-example_action:
-  name: Example Action
-  description: Execute an example action (dummy service for demonstration)
+set_channel:
+  name: Set Channel
+  description: >-
+    Push a value to one of the watch's 10 dashboard channels. This is how
+    automations feed data to the watchface - call it whenever the value you
+    want displayed changes.
   fields:
-    action_type:
-      name: Action Type
-      description: The type of action to perform
+    channel:
+      name: Channel
+      description: Channel number on the watchface (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1
+          mode: box
+    value:
+      name: Value
+      description: >-
+        The value to display. Send a string for a text channel, or a whole
+        number for a numeric/binary channel (no floats - scale into unit
+        instead, e.g. value 215 with unit "0.1°C").
+      required: true
+      example: "21.5°C"
+      selector:
+        text:
+    label:
+      name: Label
+      description: Short label for the channel (max 7 characters). Only resent when it changes.
       required: false
-      default: default
-      example: "update"
+      example: "Temp"
+      selector:
+        text:
+    kind:
+      name: Kind
+      description: How the watch should interpret and render value. Sticky - only resend when it changes.
+      required: false
+      default: text
       selector:
         select:
           options:
-            - "default"
-            - "update"
-            - "reset"
-    target_value:
-      name: Target Value
-      description: The target value for the action
+            - "text"
+            - "numeric"
+            - "binary"
+    unit:
+      name: Unit
+      description: Suffix appended after a numeric value, e.g. "C" or "%". No space is inserted automatically.
       required: false
-      example: "new_value"
+      example: "%"
       selector:
         text:
-
-reload_data:
-  name: Reload Data
-  description: Force a refresh of the integration data from the API
+    min:
+      name: Minimum
+      description: Range minimum for a numeric channel. Must be sent together with max.
+      required: false
+      example: 0
+      selector:
+        number:
+          mode: box
+    max:
+      name: Maximum
+      description: Range maximum for a numeric channel. Must be sent together with min.
+      required: false
+      example: 100
+      selector:
+        number:
+          mode: box
+    style:
+      name: Style
+      description: Rendering style for a numeric channel with a min/max range set.
+      required: false
+      default: raw
+      selector:
+        select:
+          options:
+            - "raw"
+            - "bar"
+    on_color:
+      name: On Color
+      description: Status-dot color to use when this channel reads as "on", if the user displays it as a dot.
+      required: false
+      selector:
+        select:
+          options:
+            - "red"
+            - "orange"
+            - "yellow"
+            - "green"
+            - "blue"
+            - "purple"
+            - "white"
+            - "gray"
+    off_color:
+      name: Off Color
+      description: Status-dot color to use when this channel reads as "off", if the user displays it as a dot.
+      required: false
+      selector:
+        select:
+          options:
+            - "red"
+            - "orange"
+            - "yellow"
+            - "green"
+            - "blue"
+            - "purple"
+            - "white"
+            - "gray"
+    hide_when:
+      name: Hide When
+      description: Hide the status dot when the channel is "on", "off", or never (none).
+      required: false
+      default: none
+      selector:
+        select:
+          options:
+            - "none"
+            - "on"
+            - "off"
+    bg_color:
+      name: Background Color
+      description: Background color for this channel's slot.
+      required: false
+      selector:
+        select:
+          options:
+            - "red"
+            - "orange"
+            - "yellow"
+            - "green"
+            - "blue"
+            - "purple"
+            - "white"
+            - "gray"
+    value_color:
+      name: Value Color
+      description: Foreground color for this channel's value text.
+      required: false
+      selector:
+        select:
+          options:
+            - "red"
+            - "orange"
+            - "yellow"
+            - "green"
+            - "blue"
+            - "purple"
+            - "white"
+            - "gray"
+    label_color:
+      name: Label Color
+      description: Foreground color for this channel's label text. Only visible in a small stat-row slot.
+      required: false
+      selector:
+        select:
+          options:
+            - "red"
+            - "orange"
+            - "yellow"
+            - "green"
+            - "blue"
+            - "purple"
+            - "white"
+            - "gray"

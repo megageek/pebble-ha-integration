@@ -1,13 +1,13 @@
 """
 Custom integration to integrate pebble_ha_integration with Home Assistant.
 
-This integration demonstrates best practices for:
-- Config flow setup (user, reconfigure, reauth)
-- DataUpdateCoordinator pattern for efficient data fetching
-- Multiple platform types (sensor, binary_sensor, switch, select, number)
-- Service registration and handling
-- Device and entity management
-- Proper error handling and recovery
+This integration registers two custom WebSocket API commands that implement the
+Pebble dashboard protocol (see HA_INTEGRATION_SPEC.md):
+- `pebble_dashboard/subscribe_channels`: pushes HA data out to the watch as up to
+  10 numbered "channels", set dynamically via the `set_channel` service action.
+- `pebble_dashboard/report_status`: receives battery/health/device-info reports
+  from the watch, which become sensor/binary_sensor entities created lazily as
+  each measure is first reported.
 
 For more details about this integration, please refer to:
 https://github.com/megageek/pebble-ha-integration
@@ -18,17 +18,15 @@ https://developers.home-assistant.io/docs/creating_integration_manifest
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.const import Platform
 import homeassistant.helpers.config_validation as cv
 from homeassistant.loader import async_get_loaded_integration
 
-from .api import PebbleWatchApiClient
+from .api import PebbleChannelStore, async_register_websocket_commands
 from .const import DOMAIN, LOGGER
-from .coordinator import PebbleWatchDataUpdateCoordinator
+from .coordinator import PebbleWatchStatusCoordinator
 from .data import PebbleWatchData
 from .service_actions import async_setup_services
 
@@ -39,12 +37,7 @@ if TYPE_CHECKING:
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
-    Platform.BUTTON,
-    Platform.FAN,
-    Platform.NUMBER,
-    Platform.SELECT,
     Platform.SENSOR,
-    Platform.SWITCH,
 ]
 
 # This integration is configured via config entries only
@@ -55,13 +48,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """
     Set up the integration.
 
-    This is called once at Home Assistant startup to register service actions.
-    Service actions must be registered here (not in async_setup_entry) to ensure:
-    - Service action validation works correctly
-    - Service actions are available even without config entries
-    - Helpful error messages are provided
-
-    This is a Silver Quality Scale requirement.
+    Called once at Home Assistant startup. Registers the two custom WebSocket API
+    commands and the `set_channel` service action - both are hass-global, not tied
+    to a specific config entry, so they must be registered here rather than in
+    async_setup_entry() (Silver Quality Scale requirement for services, and the
+    natural place for WebSocket commands too since only one command of each name
+    can ever be registered).
 
     Args:
         hass: The Home Assistant instance.
@@ -70,9 +62,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     Returns:
         True if setup was successful.
 
-    For more information:
-    https://developers.home-assistant.io/docs/dev_101_services
     """
+    async_register_websocket_commands(hass)
     await async_setup_services(hass)
     return True
 
@@ -84,23 +75,9 @@ async def async_setup_entry(
     """
     Set up this integration using UI.
 
-    This is called when a config entry is loaded. It:
-    1. Creates the API client with credentials from the config entry
-    2. Initializes the DataUpdateCoordinator for data fetching
-    3. Performs the first data refresh
-    4. Sets up all platforms (sensors, switches, etc.)
-    5. Registers services
-    6. Sets up reload listener for config changes
-
-    Data flow in this integration:
-    1. User enters username/password in config flow (config_flow.py)
-    2. Credentials stored in entry.data[CONF_USERNAME/CONF_PASSWORD]
-    3. API Client initialized with credentials (api/client.py)
-    4. Coordinator fetches data using authenticated client (coordinator/base.py)
-    5. Entities access data via self.coordinator.data (sensor/, binary_sensor/, etc.)
-
-    This pattern ensures credentials from setup flow are used throughout
-    the integration's lifecycle for API communication.
+    Unlike a typical polling integration, there is nothing to fetch at setup time -
+    the channel store starts empty and the status coordinator starts with no data;
+    both are populated reactively as WebSocket commands arrive from the phone.
 
     Args:
         hass: The Home Assistant instance.
@@ -112,32 +89,19 @@ async def async_setup_entry(
     For more information:
     https://developers.home-assistant.io/docs/config_entries_index/#setting-up-an-entry
     """
-    # Initialize client first
-    client = PebbleWatchApiClient(
-        username=entry.data[CONF_USERNAME],  # From config flow setup
-        password=entry.data[CONF_PASSWORD],  # From config flow setup
-        session=async_get_clientsession(hass),
-    )
-
-    # Initialize coordinator with config_entry
-    coordinator = PebbleWatchDataUpdateCoordinator(
+    status_coordinator = PebbleWatchStatusCoordinator(
         hass=hass,
         logger=LOGGER,
         name=DOMAIN,
         config_entry=entry,
-        update_interval=timedelta(hours=1),
-        always_update=False,  # Only update entities when data actually changes
+        update_interval=None,
     )
 
-    # Store runtime data
     entry.runtime_data = PebbleWatchData(
-        client=client,
+        channel_store=PebbleChannelStore(),
+        status_coordinator=status_coordinator,
         integration=async_get_loaded_integration(hass, entry.domain),
-        coordinator=coordinator,
     )
-
-    # https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
-    await coordinator.async_config_entry_first_refresh()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -153,10 +117,7 @@ async def async_unload_entry(
     Unload a config entry.
 
     This is called when the integration is being removed or reloaded.
-    It ensures proper cleanup of:
-    - All platform entities
-    - Registered services
-    - Update listeners
+    It ensures proper cleanup of all platform entities.
 
     Args:
         hass: The Home Assistant instance.

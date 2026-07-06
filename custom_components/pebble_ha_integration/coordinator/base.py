@@ -1,125 +1,58 @@
 """
-Core DataUpdateCoordinator implementation for pebble_ha_integration.
+Push-based status coordinator for pebble_ha_integration.
 
-This module contains the main coordinator class that manages data fetching
-and updates for all entities in the integration. It handles refresh cycles,
-error handling, and triggers reauthentication when needed.
-
-For more information on coordinators:
-https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
+Unlike a typical DataUpdateCoordinator, this coordinator never polls anything - the
+watch pushes battery/health/device-info reports to Home Assistant via the
+`pebble_dashboard/report_status` WebSocket command (see `api/websocket_commands.py`),
+which calls `async_ingest_status_report()` below every time a report arrives. See
+HA_INTEGRATION_SPEC.md for the report shape and field semantics.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from custom_components.pebble_ha_integration.api import (
-    PebbleWatchApiClientAuthenticationError,
-    PebbleWatchApiClientError,
-)
 from custom_components.pebble_ha_integration.const import LOGGER
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+from .data_processing import async_sync_disabled_entities
 
 if TYPE_CHECKING:
     from custom_components.pebble_ha_integration.data import PebbleWatchConfigEntry
 
 
-class PebbleWatchDataUpdateCoordinator(DataUpdateCoordinator):
+class PebbleWatchStatusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """
-    Class to manage fetching data from the API.
+    Distributes watch status reports to entities.
 
-    This coordinator handles all data fetching for the integration and distributes
-    updates to all entities. It manages:
-    - Periodic data updates based on update_interval
-    - Error handling and recovery
-    - Authentication failure detection and reauthentication triggers
-    - Data distribution to all entities
-    - Context-based data fetching (only fetch data for active entities)
-
-    For more information:
-    https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
+    Pure push: constructed with `update_interval=None` and `_async_update_data` is
+    never implemented or called, since there is nothing to poll - the watch decides
+    when it reports in (startup, every battery change, once a minute, and
+    immediately on a reporting-toggle change).
 
     Attributes:
         config_entry: The config entry for this integration instance.
+
     """
 
     config_entry: PebbleWatchConfigEntry
 
-    async def _async_setup(self) -> None:
+    def async_ingest_status_report(self, status: dict[str, Any]) -> None:
         """
-        Set up the coordinator.
+        Merge a new (possibly partial) status report and notify entities.
 
-        This method is called automatically during async_config_entry_first_refresh()
-        and is the ideal place for one-time initialization tasks such as:
-        - Loading device information
-        - Setting up event listeners
-        - Initializing caches
+        Every field is optional per the spec - a field's absence just means that
+        measure wasn't accessible on the watch at report time, so previously known
+        fields not present in this report are preserved rather than dropped.
 
-        This runs before the first data fetch, ensuring any required setup
-        is complete before entities start requesting data.
+        Args:
+            status: The `status` payload from a `pebble_dashboard/report_status`
+                WebSocket command, either a periodic report or the one-time
+                device-info report.
+
         """
-        # Example: Fetch device info once at startup
-        # device_info = await self.config_entry.runtime_data.client.get_device_info()
-        # self._device_id = device_info["id"]
-        LOGGER.debug("Coordinator setup complete for %s", self.config_entry.entry_id)
-
-    async def _async_update_data(self) -> Any:
-        """
-        Fetch data from API endpoint.
-
-        This is the only method that should be implemented in a DataUpdateCoordinator.
-        It is called automatically based on the update_interval.
-
-        Context-based fetching:
-        The coordinator tracks which entities are currently listening via async_contexts().
-        This allows optimizing API calls to only fetch data that's actually needed.
-        For example, if only sensor entities are enabled, we can skip fetching switch data.
-
-        The API client uses the credentials from config_entry to authenticate:
-        - username: from config_entry.data["username"]
-        - password: from config_entry.data["password"]
-
-        Expected API response structure (example):
-        {
-            "userId": 1,      # Used as device identifier
-            "id": 1,          # Data record ID
-            "title": "...",   # Additional metadata
-            "body": "...",    # Additional content
-            # In production, would include:
-            # "air_quality": {"aqi": 45, "pm25": 12.3},
-            # "filter": {"life_remaining": 75, "runtime_hours": 324},
-            # "settings": {"fan_speed": "medium", "humidity": 55}
-        }
-
-        Returns:
-            The data from the API as a dictionary.
-
-        Raises:
-            ConfigEntryAuthFailed: If authentication fails, triggers reauthentication.
-            UpdateFailed: If data fetching fails for other reasons, optionally with retry_after.
-        """
-        try:
-            # Optional: Get active entity contexts to optimize data fetching
-            # listening_contexts = set(self.async_contexts())
-            # LOGGER.debug("Active entity contexts: %s", listening_contexts)
-
-            # Fetch data from API
-            # In production, you could pass listening_contexts to optimize the API call:
-            # return await self.config_entry.runtime_data.client.async_get_data(listening_contexts)
-            return await self.config_entry.runtime_data.client.async_get_data()
-        except PebbleWatchApiClientAuthenticationError as exception:
-            LOGGER.warning("Authentication error - %s", exception)
-            raise ConfigEntryAuthFailed(
-                translation_domain="pebble_ha_integration",
-                translation_key="authentication_failed",
-            ) from exception
-        except PebbleWatchApiClientError as exception:
-            LOGGER.exception("Error communicating with API")
-            # If the API provides rate limit information, you can honor it:
-            # if hasattr(exception, 'retry_after'):
-            #     raise UpdateFailed(retry_after=exception.retry_after) from exception
-            raise UpdateFailed(
-                translation_domain="pebble_ha_integration",
-                translation_key="update_failed",
-            ) from exception
+        old_status = self.data or {}
+        merged = {**old_status, **status}
+        LOGGER.debug("Ingested status report: %s", status)
+        async_sync_disabled_entities(self.hass, self.config_entry, old_status, merged)
+        self.async_set_updated_data(merged)

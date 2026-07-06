@@ -1,14 +1,9 @@
 """
-Data update coordinator package for pebble_ha_integration.
-
-This package provides the coordinator infrastructure for managing periodic
-data updates and distributing them to all entities in the integration.
+Coordinator package for pebble_ha_integration.
 
 Package structure:
-- base.py: Main coordinator class (PebbleWatchDataUpdateCoordinator)
-- data_processing.py: Data validation, transformation, and caching utilities
-- error_handling.py: Error recovery strategies and retry logic
-- listeners.py: Event listeners and entity callbacks
+- base.py: PebbleWatchStatusCoordinator, a pure push sink for `report_status` reports
+- data_processing.py: entity registry sync for the `disabled` measure-group field
 
 For more information on coordinators:
 https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
@@ -16,6 +11,6 @@ https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-
 
 from __future__ import annotations
 
-from .base import PebbleWatchDataUpdateCoordinator
+from .base import PebbleWatchStatusCoordinator
 
-__all__ = ["PebbleWatchDataUpdateCoordinator"]
+__all__ = ["PebbleWatchStatusCoordinator"]
