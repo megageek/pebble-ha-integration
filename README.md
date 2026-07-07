@@ -7,45 +7,44 @@
 [![hacs][hacsbadge]][hacs]
 ![Project Maintenance][maintenance-shield]
 
-<!--
-Uncomment and customize these badges if you want to use them:
-
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
-[![Discord][discord-shield]][discord]
--->
-
 **✨ Develop in the cloud:** Want to contribute or customize this integration? Open it directly in GitHub Codespaces - no local setup required!
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/megageek/pebble-ha-integration?quickstart=1)
 
+Home Assistant integration for a custom Pebble watchface. It works over Home
+Assistant's own WebSocket API - the watch's phone bridge connects in and:
+
+- **pulls** up to 10 numbered "channels" of data to show on the watchface, fed
+  by your automations via a single service call
+- **pushes** battery, activity, sleep, heart rate, and device info back to Home
+  Assistant, which appear automatically as sensors
+
+See [`HA_INTEGRATION_SPEC.md`](HA_INTEGRATION_SPEC.md) for the full wire
+protocol if you're working on the watch/phone side.
+
 ## ✨ Features
 
-- **Easy Setup**: Simple configuration through the UI - no YAML required
-- **Air Quality Monitoring**: Track AQI and PM2.5 levels in real-time
-- **Filter Management**: Monitor filter life and get replacement alerts
-- **Smart Control**: Adjust fan speed, target humidity, and operating modes
-- **Child Lock**: Safety feature to prevent accidental changes
-- **Diagnostic Info**: View filter life, runtime hours, and device statistics
-- **Reconfigurable**: Change credentials anytime without removing the integration
-- **Options Flow**: Adjust settings like update interval after setup
-- **Custom Services**: Advanced control with built-in service calls
+- **Zero-config setup**: no host, credentials, or API key - just add the
+  integration. The phone authenticates with a Home Assistant long-lived access
+  token you already have, entirely outside this integration's control
+- **Dashboard channels**: call `pebble_ha_integration.set_channel` from any
+  automation to push a value, label, color, or unit to one of the watch's 10
+  channels - no static entity-to-channel mapping to configure
+- **Automatic status sensors**: battery, steps, activity, sleep, heart rate,
+  connectivity, and watch color/model/firmware appear the first time your
+  watch actually reports them - nothing is pre-created for hardware or
+  permissions you don't have
+- **Respects on-watch privacy settings**: if you turn off a measure group
+  (e.g. heart rate) in the watchface's own settings, the matching Home
+  Assistant entity is disabled automatically
 
-**This integration will set up the following platforms.**
+**This integration sets up the following platforms, populated dynamically as
+your watch reports in:**
 
-| Platform        | Description                                              |
-| --------------- | -------------------------------------------------------- |
-| `sensor`        | Air quality index (AQI), PM2.5, filter life, and runtime |
-| `binary_sensor` | API connection status and filter replacement alert       |
-| `switch`        | Child lock and LED display controls                      |
-| `select`        | Fan speed selection (Low/Medium/High/Auto)               |
-| `number`        | Target humidity setting (30-80%)                         |
-| `button`        | Reset filter timer after replacement                     |
-| `fan`           | Air purifier fan control with speed settings             |
-
-> [!TIP]
-> **Interactive Demo:** The entities are interconnected for demonstration.
-> Press the **Reset Filter Timer** button to see **Filter Life Remaining** update to 100%.
-> Changing the **Air Purifier** fan speed syncs the **Fan Speed** select, and vice versa.
+| Platform        | Entities                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| `sensor`        | Battery %, Steps, Active Time, Distance, Active/Resting Calories, Sleep, Heart Rate, Color |
+| `binary_sensor` | Charging, Connected                                                                        |
 
 ## 🚀 Quick Start
 
@@ -55,7 +54,7 @@ Uncomment and customize these badges if you want to use them:
 
 Click the button below to open the integration directly in HACS:
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jpawlowski&repository=pebble-ha-integration&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=megageek&repository=pebble-ha-integration&category=integration)
 
 Then:
 
@@ -76,192 +75,148 @@ If you prefer not to use HACS:
 
 </details>
 
-### Step 2: Add and Configure the Integration
+### Step 2: Add the Integration
 
 **Important:** You must have installed the integration first (see Step 1) and restarted Home Assistant!
-
-#### Option 1: One-Click Setup (Quick)
 
 Click the button below to open the configuration dialog:
 
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=pebble_ha_integration)
 
-Follow the setup wizard:
+There's nothing to fill in - click **Submit** to create the integration. Only
+one instance is needed; the phone brings its own Home Assistant long-lived
+access token when it connects, so there are no credentials to enter here.
 
-1. Enter your username
-2. Enter your password
-3. Click Submit
-
-That's it! The integration will start loading your data.
-
-#### Option 2: Manual Configuration
+Alternatively:
 
 1. Go to **Settings** → **Devices & Services**
 2. Click **"+ Add Integration"**
-3. Search for "Pebble Watch"
-4. Follow the same setup steps as Option 1
+3. Search for "Pebble Watch" and click **Submit**
 
-### Step 3: Adjust Settings (Optional)
+### Step 3: Point the Watch at Home Assistant
 
-After setup, you can adjust options:
+On the phone running the Pebble watchface app, configure the watchface's Clay
+settings with your Home Assistant URL and a
+[long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile).
+Once the watch connects, it registers its status and starts receiving channel
+updates automatically - no further setup is needed on the Home Assistant side.
 
-1. Go to **Settings** → **Devices & Services**
-2. Find **Pebble Watch**
-3. Click **Configure** to adjust:
-   - Update interval (how often to refresh data)
-   - Enable debug logging
+### Step 4: Feed the Dashboard Channels
 
-You can also **Reconfigure** your credentials anytime without removing the integration.
+Call the `pebble_ha_integration.set_channel` service from an automation
+whenever you want a channel's value to change:
 
-### Step 4: Start Using!
+```yaml
+action: pebble_ha_integration.set_channel
+data:
+  channel: 1
+  value: "{{ states('sensor.outdoor_temperature') }}"
+  label: "Temp"
+  kind: numeric
+  unit: "°C"
+```
 
-The integration creates several entities for your air purifier:
-
-- **Sensors**: Air quality index, PM2.5 levels, filter life remaining, total runtime
-- **Binary Sensors**: API connection status, filter replacement alert
-- **Switches**: Child lock, LED display control
-- **Select**: Fan speed (Low/Medium/High/Auto)
-- **Number**: Target humidity (30-80%)
-- **Button**: Reset filter timer
-- **Fan**: Air purifier fan control
-
-Find all entities in **Settings** → **Devices & Services** → **Pebble Watch** → click on the device.
+See [Custom Services](#custom-services) below for every available field.
 
 ## Available Entities
 
+Entities appear the first time the watch actually reports that measure - if
+your watch has no heart rate sensor, or the user hasn't granted Health
+permission, that sensor simply never shows up (it won't linger as
+"unavailable"). Find them in **Settings** → **Devices & Services** → **Pebble
+Watch** → click on the device.
+
 ### Sensors
 
-- **Air Quality Index (AQI)**: Real-time air quality measurement (0-500 scale)
-  - Includes air quality category (Good/Moderate/Unhealthy/etc.)
-  - Health recommendations based on current AQI
-- **PM2.5**: Fine particulate matter concentration in µg/m³
-- **Filter Life Remaining** (Diagnostic): Shows remaining filter life as percentage
-- **Total Runtime** (Diagnostic): Total operating hours of the device
+- **Battery**: current battery percentage
+- **Steps**, **Active Time**, **Distance**, **Active Calories**, **Resting Calories**: today's cumulative activity totals, reset at local midnight on the watch
+- **Sleep**, **Restful Sleep**: today's cumulative sleep totals
+- **Heart Rate**: most recent background heart-rate sample (can be up to ~15 minutes stale - the watch doesn't spend extra battery to keep it fresher)
+- **Color** (Diagnostic): the watch's case color, reported once at app startup
 
 ### Binary Sensors
 
-- **API Connection**: Shows whether the connection to the API is active
-  - On: Connected and receiving data
-  - Off: Connection lost or authentication failed
-  - Shows update interval and API endpoint information
-- **Filter Replacement Needed**: Alerts when filter needs replacement
-  - Shows estimated days remaining
-  - Turns on when filter life is low
+- **Charging** (Diagnostic): whether the watch is currently charging
+- **Connected** (Diagnostic): whether the watch app is connected to the phone
 
-### Switches
+### Entity availability vs. disabled
 
-- **Child Lock**: Prevents accidental button presses on the device
-  - Icon changes based on state (locked/unlocked)
-- **LED Display**: Enable/disable the LED display
-  - Disabled by default - enable in entity settings if needed
-
-### Select
-
-- **Fan Speed**: Choose from Low, Medium, High, or Auto
-  - Icon changes dynamically based on selected speed
-  - Auto mode adjusts speed based on air quality
-  - Syncs bidirectionally with the Air Purifier fan entity
-
-### Number
-
-- **Target Humidity**: Set desired humidity level (30-80%)
-  - Adjustable in 5% increments
-  - Displayed as a slider in the UI
-
-### Button
-
-- **Reset Filter Timer**: Reset the filter life to 100%
-  - Press to reset after replacing the filter
-  - Instantly updates the Filter Life Remaining sensor
-
-### Fan
-
-- **Air Purifier**: Control the air purifier fan speed and power
-  - Three speed levels: Low, Medium, High
-  - Syncs bidirectionally with the Fan Speed select entity
-  - Turn on/off functionality
+- If a measure is temporarily unreported (e.g. a momentary gap), an
+  already-created entity goes `unavailable` rather than disappearing.
+- If you turn a measure group off in the watchface's own Clay settings, the
+  matching entity is disabled in the entity registry instead - re-enable it in
+  **Settings** → **Devices & Services** → **Entities** if you turn the measure
+  back on and want the entity restored.
 
 ## Custom Services
 
-The integration provides services for advanced automation:
+### `pebble_ha_integration.set_channel`
 
-### `pebble_ha_integration.example_action`
+Push a value to one of the watch's 10 dashboard channels. This is the primary
+way automations drive the watchface - call it whenever the value you want
+displayed changes.
 
-Perform a custom action (customize this for your needs).
+| Field                                      | Required | Description                                                                                     |
+| ------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
+| `channel`                                  | Yes      | Channel number on the watchface (1-10)                                                          |
+| `value`                                    | Yes      | String for a text channel, or a whole number for numeric/binary (no floats - scale into `unit`) |
+| `label`                                    | No       | Short label (max 7 characters); only needs resending when it changes                            |
+| `kind`                                     | No       | `text` (default), `numeric`, or `binary`; sticky - only resend when it changes                  |
+| `unit`                                     | No       | Suffix appended after a numeric value, e.g. `"%"` or `" kcal"`                                  |
+| `min` / `max`                              | No       | Range for a numeric channel; only takes effect when both are sent together                      |
+| `style`                                    | No       | `raw` (default) or `bar`, once `min`/`max` are set                                              |
+| `on_color` / `off_color`                   | No       | Status-dot color when the user displays this channel as a dot                                   |
+| `hide_when`                                | No       | `none` (default), `on`, or `off` - hide the status dot except when it needs attention           |
+| `bg_color` / `value_color` / `label_color` | No       | Background/value/label colors for this channel's normal display                                 |
 
-**Example:**
+Color fields accept: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `white`, `gray`.
+
+**Example - a numeric channel with a progress bar:**
 
 ```yaml
-service: pebble_ha_integration.example_action
+action: pebble_ha_integration.set_channel
 data:
-  # Add your parameters here
+  channel: 2
+  value: "{{ states('sensor.living_room_humidity') | int }}"
+  label: "Humid"
+  kind: numeric
+  unit: "%"
+  min: 0
+  max: 100
+  style: bar
 ```
 
-### `pebble_ha_integration.reload_data`
-
-Manually refresh data from the API without waiting for the update interval.
-
-**Example:**
+**Example - a status-dot channel:**
 
 ```yaml
-service: pebble_ha_integration.reload_data
+action: pebble_ha_integration.set_channel
+data:
+  channel: 3
+  value: "{{ 'on' if is_state('binary_sensor.front_door', 'on') else 'off' }}"
+  label: "Door"
+  on_color: red
+  off_color: green
+  hide_when: "off"
 ```
-
-Use these services in automations or scripts for more control.
-
-## Configuration Options
-
-### During Setup
-
-| Name     | Required | Description           |
-| -------- | -------- | --------------------- |
-| Username | Yes      | Your account username |
-| Password | Yes      | Your account password |
-
-### After Setup (Options)
-
-You can change these anytime by clicking **Configure**:
-
-| Name             | Default | Description                |
-| ---------------- | ------- | -------------------------- |
-| Update Interval  | 1 hour  | How often to refresh data  |
-| Enable Debugging | Off     | Enable extra debug logging |
 
 ## Troubleshooting
 
-### Authentication Issues
+### No entities appear after setup
 
-#### Reauthentication
+Entities are created lazily, the first time the watch actually sends a status
+report - they won't exist until the watch has connected at least once. Confirm
+the watch/phone bridge is configured with the correct Home Assistant URL and a
+valid long-lived access token, then check the debug log (below) for incoming
+`pebble_dashboard/report_status` commands.
 
-If your credentials expire or change, Home Assistant will automatically prompt you to reauthenticate:
+### A channel isn't updating on the watch
 
-1. Go to **Settings** → **Devices & Services**
-2. Look for **"Action Required"** or **"Configuration Required"** message on the integration
-3. Click **"Reconfigure"** or follow the prompt
-4. Enter your updated credentials
-5. Click Submit
-
-The integration will automatically resume normal operation with the new credentials.
-
-#### Manual Credential Update
-
-You can also update credentials at any time without waiting for an error:
-
-1. Go to **Settings** → **Devices & Services**
-2. Find **Pebble Watch**
-3. Click the **3 dots menu** → **Reconfigure**
-4. Enter new username/password
-5. Click Submit
-
-#### Connection Status
-
-Monitor your connection status with the **API Connection** binary sensor:
-
-- **On** (Connected): Integration is receiving data normally
-- **Off** (Disconnected): Connection lost or authentication failed
-  - Check the binary sensor attributes for diagnostic information
-  - Verify credentials if authentication failed
-  - Check network connectivity
+- Confirm the automation is actually calling `pebble_ha_integration.set_channel`
+  (check **Settings** → **Automations & Scenes** → trace, or **Developer Tools**
+  → **Actions**).
+- Only one watch/phone connection is served at a time per subscription - if the
+  phone reconnected, it re-subscribes and receives the current state
+  immediately, so a stuck value usually means the automation itself isn't firing.
 
 ### Enable Debug Logging
 
@@ -274,25 +229,15 @@ logger:
     custom_components.pebble_ha_integration: debug
 ```
 
-### Common Issues
+This logs every `set_channel` call and every status report received from the
+watch, which is the fastest way to confirm data is flowing in both directions.
 
-#### Authentication Errors
+### Diagnostics
 
-If you receive authentication errors:
-
-1. Verify your username and password are correct
-2. Check that your account has the necessary permissions
-3. Wait for the automatic reauthentication prompt, or manually reconfigure
-4. Check the API Connection binary sensor for status
-
-#### Device Not Responding
-
-If your device is not responding:
-
-1. Check the **API Connection** binary sensor - it should be "On"
-2. Check your network connection
-3. Verify the device is powered on
-4. Check the integration diagnostics (Settings → Devices & Services → Pebble Watch → 3 dots → Download diagnostics)
+Download diagnostics from **Settings** → **Devices & Services** → **Pebble
+Watch** → 3 dots → **Download diagnostics** to see the current channel state,
+which status measures are being reported, and how many watch/phone connections
+are currently subscribed.
 
 ## 🤝 Contributing
 
@@ -384,8 +329,6 @@ You'll need these installed locally:
 
 > [!NOTE]
 > **Transparency Notice:** This integration was developed with assistance from AI coding agents (GitHub Copilot, Claude, and others). While the codebase follows Home Assistant Core standards, AI-generated code may not be reviewed or tested to the same extent as manually written code. AI tools were used to generate boilerplate code, implement standard integration features (config flow, coordinator, entities), ensure code quality and type safety, and write documentation. If you encounter unexpected behavior, please [open an issue](../../issues) on GitHub.
->
-> _This section can be removed or modified if AI assistance was not used in your integration's development._
 
 ---
 
@@ -407,11 +350,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 [maintenance-shield]: https://img.shields.io/badge/maintainer-%40megageek-blue.svg?style=for-the-badge
 [releases-shield]: https://img.shields.io/github/release/megageek/pebble-ha-integration.svg?style=for-the-badge
 [releases]: https://github.com/megageek/pebble-ha-integration/releases
-[user_profile]: https://github.com/jpawlowski
-
-<!-- Optional badge definitions - uncomment if needed:
-[buymecoffee]: https://www.buymeacoffee.com/jpawlowski
-[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
-[discord]: https://discord.gg/Qa5fW2R
-[discord-shield]: https://img.shields.io/discord/330944238910963714.svg?style=for-the-badge
--->
+[user_profile]: https://github.com/megageek
